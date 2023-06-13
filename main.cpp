@@ -18,15 +18,13 @@ std::vector<std::string> splitCommand(const std::string& command) {
     std::vector<std::string> tokens;
     std::istringstream tokenStream(command);
     std::string token;
-    while (getline(tokenStream, token, ' ')) {
+    while (tokenStream >> token) {
         tokens.push_back(token);
     }
     return tokens;
 }
 
-void executeInternalCommand(const std::vector<std::string>& commands);
-
-void executePwd(const std::vector<std::string>& commands) {
+void executePwd(const std::vector<std::string>&) {
     char currentDir[256];
     if (getcwd(currentDir, sizeof(currentDir)) != nullptr) {
         std::cout << currentDir << std::endl;
@@ -71,14 +69,43 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
 typedef char** (*CompletionFunc)(const char*, int, int);
 
 char** commandCompletion(const char* text, int start, int end) {
-    char** completionMatches = nullptr;
+    if (start != 0) {
+        return nullptr;
+    }
 
-    if (start == 0) {
-        rl_attempted_completion_over = 1;
+    rl_attempted_completion_over = 1;
+
+    std::vector<std::string> matches;
+
+    // Add system commands to matches
+    std::string pathEnv = std::getenv("PATH");
+    std::istringstream pathStream(pathEnv);
+    std::string path;
+    while (getline(pathStream, path, ':')) {
+        try {
+            for (const auto& entry : std::filesystem::directory_iterator(path)) {
+                const std::string& filename = entry.path().filename().string();
+                if (filename.find(text) == 0) {
+                    matches.push_back(filename);
+                }
+            }
+        } catch (const std::filesystem::filesystem_error&) {
+            // Handle any filesystem errors and continue to the next path
+        }
+    }
+
+    if (matches.empty()) {
+        return nullptr;
+    }
+
+    char** completionMatches = rl_completion_matches(text, [](const char* text, int state) -> char* {
+        static size_t index = 0;
+        if (state == 0) {
+            index = 0;
+        }
 
         std::vector<std::string> matches;
 
-        // Add system commands to matches
         std::string pathEnv = std::getenv("PATH");
         std::istringstream pathStream(pathEnv);
         std::string path;
@@ -95,39 +122,12 @@ char** commandCompletion(const char* text, int start, int end) {
             }
         }
 
-        if (!matches.empty()) {
-            completionMatches = rl_completion_matches(text, [](const char* text, int state) -> char* {
-                static size_t index = 0;
-                if (state == 0) {
-                    index = 0;
-                }
-
-                std::vector<std::string> matches;
-
-                std::string pathEnv = std::getenv("PATH");
-                std::istringstream pathStream(pathEnv);
-                std::string path;
-                while (getline(pathStream, path, ':')) {
-                    try {
-                        for (const auto& entry : std::filesystem::directory_iterator(path)) {
-                            const std::string& filename = entry.path().filename().string();
-                            if (filename.find(text) == 0) {
-                                matches.push_back(filename);
-                            }
-                        }
-                    } catch (const std::filesystem::filesystem_error&) {
-                        // Handle any filesystem errors and continue to the next path
-                    }
-                }
-
-                if (index < matches.size()) {
-                    return strdup(matches[index++].c_str());
-                }
-
-                return nullptr;
-            });
+        if (index < matches.size()) {
+            return strdup(matches[index++].c_str());
         }
-    }
+
+        return nullptr;
+    });
 
     return completionMatches;
 }
