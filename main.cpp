@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <filesystem>
+#include "Commands.h"
 
 std::vector<std::string> splitCommand(const std::string& command) {
     std::vector<std::string> tokens;
@@ -22,28 +23,6 @@ std::vector<std::string> splitCommand(const std::string& command) {
         tokens.push_back(token);
     }
     return tokens;
-}
-
-void executePwd(const std::vector<std::string>&) {
-    char currentDir[256];
-    if (getcwd(currentDir, sizeof(currentDir)) != nullptr) {
-        std::cout << currentDir << std::endl;
-    } else {
-        std::cout << "Failed to get current directory" << std::endl;
-    }
-}
-
-void executeCd(const std::vector<std::string>& commands) {
-    if (commands.size() < 2) {
-        std::cout << "cd: Missing directory argument" << std::endl;
-        return;
-    }
-
-    const std::string& directory = commands[1];
-    if (chdir(directory.c_str()) == 0) {
-    } else {
-        std::cout << "cd: Failed to change directory to " << directory << std::endl;
-    }
 }
 
 void executeExternalCommand(const std::vector<std::string>& commands) {
@@ -139,9 +118,8 @@ int main() {
             {"exit", [](const std::vector<std::string>&) {
                 exit(0);
             }},
-            {"pwd", executePwd},
-            {"cd", executeCd},
-            // Add more commands to the map here
+            {"pwd", Commands::cmdPwd},
+            {"cd", Commands::cmdCd},
     };
 
     char* input;
