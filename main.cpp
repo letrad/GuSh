@@ -26,23 +26,37 @@ std::vector<std::string> splitCommand(const std::string& command) {
 }
 
 void executeExternalCommand(const std::vector<std::string>& commands) {
-    std::string command;
-    for (const auto& cmd : commands) {
-        command += cmd + " ";
-    }
+    pid_t pid = fork();
 
-    FILE* pipe = popen(command.c_str(), "r");
-    if (pipe == nullptr) {
-        throw std::runtime_error("Failed to execute command");
-    }
+    if (pid < 0) {
+        std::cerr << "Fork failed!\n";
+        return;
+    } else if (pid == 0) {  // Child process
+        signal(SIGINT, SIG_DFL);  // Reset SIGINT handler
 
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        std::cout << buffer;
-    }
+        std::vector<char*> cstyle_commands;
+        for (const auto& cmd : commands) {
+            cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
+        }
+        cstyle_commands.push_back(nullptr);
 
-    pclose(pipe);
+        execvp(cstyle_commands[0], cstyle_commands.data());
+
+        std::cerr << "Execvp failed!\n";
+        return;
+    } else {  // Parent process
+        int status;
+        waitpid(pid, &status, 0);
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            std::cerr << "Child process error code: " << WEXITSTATUS(status) << "\n";
+        } else if (WIFSIGNALED(status)) {
+            std::cerr << "Child process killed by signal: " << WTERMSIG(status) << "\n";
+        }
+    }
 }
+
+
 
 std::vector<std::string> getCommandMatches(const char* text) {
     std::vector<std::string> matches;
@@ -97,6 +111,8 @@ char** commandCompletion(const char* text, int start, int end) {
 }
 
 int main() {
+    // Just to stop the shell from being ^C-ed
+    signal(SIGINT, SIG_IGN);
     try {
         rl_attempted_completion_function = reinterpret_cast<CompletionFunc>(commandCompletion);
 
