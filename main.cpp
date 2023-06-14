@@ -17,13 +17,32 @@
 
 std::vector<std::string> splitCommand(const std::string& command) {
     std::vector<std::string> tokens;
-    std::istringstream tokenStream(command);
     std::string token;
-    while (tokenStream >> token) {
+    bool inSingleQuote = false;
+    bool inDoubleQuote = false;
+
+    for (char c : command) {
+        if (c == ' ' && !inSingleQuote && !inDoubleQuote) {
+            if (!token.empty()) {
+                tokens.push_back(token);
+                token.clear();
+            }
+        } else if (c == '\'' && !inDoubleQuote) {
+            inSingleQuote = !inSingleQuote;
+        } else if (c == '\"' && !inSingleQuote) {
+            inDoubleQuote = !inDoubleQuote;
+        } else {
+            token += c;
+        }
+    }
+
+    if (!token.empty()) {
         tokens.push_back(token);
     }
+
     return tokens;
 }
+
 
 void executeExternalCommand(const std::vector<std::string>& commands) {
     pid_t pid = fork();
