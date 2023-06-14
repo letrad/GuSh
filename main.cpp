@@ -33,8 +33,7 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
 
     FILE* pipe = popen(command.c_str(), "r");
     if (pipe == nullptr) {
-        std::cout << "Failed to execute command" << std::endl;
-        return;
+        throw std::runtime_error("Failed to execute command");
     }
 
     char buffer[256];
@@ -45,18 +44,8 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
     pclose(pipe);
 }
 
-typedef char** (*CompletionFunc)(const char*, int, int);
-
-char** commandCompletion(const char* text, int start, int end) {
-    if (start != 0) {
-        return nullptr;
-    }
-
-    rl_attempted_completion_over = 1;
-
+std::vector<std::string> getCommandMatches(const char* text) {
     std::vector<std::string> matches;
-
-    // Add system commands to matches
     std::string pathEnv = std::getenv("PATH");
     std::istringstream pathStream(pathEnv);
     std::string path;
@@ -72,6 +61,18 @@ char** commandCompletion(const char* text, int start, int end) {
             // Handle any filesystem errors and continue to the next path
         }
     }
+    return matches;
+}
+
+typedef char** (*CompletionFunc)(const char*, int, int);
+
+char** commandCompletion(const char* text, int start, int end) {
+    if (start != 0) {
+        return nullptr;
+    }
+
+    rl_attempted_completion_over = 1;
+    std::vector<std::string> matches = getCommandMatches(text);
 
     if (matches.empty()) {
         return nullptr;
@@ -83,23 +84,7 @@ char** commandCompletion(const char* text, int start, int end) {
             index = 0;
         }
 
-        std::vector<std::string> matches;
-
-        std::string pathEnv = std::getenv("PATH");
-        std::istringstream pathStream(pathEnv);
-        std::string path;
-        while (getline(pathStream, path, ':')) {
-            try {
-                for (const auto& entry : std::filesystem::directory_iterator(path)) {
-                    const std::string& filename = entry.path().filename().string();
-                    if (filename.find(text) == 0) {
-                        matches.push_back(filename);
-                    }
-                }
-            } catch (const std::filesystem::filesystem_error&) {
-                // Handle any filesystem errors and continue to the next path
-            }
-        }
+        std::vector<std::string> matches = getCommandMatches(text);
 
         if (index < matches.size()) {
             return strdup(matches[index++].c_str());
@@ -112,32 +97,39 @@ char** commandCompletion(const char* text, int start, int end) {
 }
 
 int main() {
-    rl_attempted_completion_function = reinterpret_cast<CompletionFunc>(commandCompletion);
+    try {
+        rl_attempted_completion_function = reinterpret_cast<CompletionFunc>(commandCompletion);
 
-    std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap = {
-            {"exit", [](const std::vector<std::string>&) {
-                exit(0);
-            }},
-            {"pwd", Commands::cmdPwd},
-            {"cd", Commands::cmdCd},
-    };
+        std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap = {
+                {"exit", [](const std::vector<std::string>&) {
+                    exit(0);
+                }},
+                {"pwd", Commands::cmdPwd},
+                {"cd", Commands::cmdCd},
+        };
 
-    char* input;
-    while ((input = readline("> ")) != nullptr) {
-        add_history(input);
+        char* input;
+        while ((input = readline("> ")) != nullptr) {
+            add_history(input);
 
-        std::string command(input);
-        std::vector<std::string> commands = splitCommand(command);
+            std::string command(input);
+            std::vector<std::string> commands = splitCommand(command);
 
-        const std::string& cmd = commands[0];
-        auto it = commandMap.find(cmd);
-        if (it != commandMap.end()) {
-            it->second(commands);
-        } else {
-            executeExternalCommand(commands);
+            const std::string& cmd = commands[0];
+            auto it = commandMap
+                    .find(cmd);
+            if (it != commandMap.end()) {
+                it->second(commands);
+            } else {
+                executeExternalCommand(commands);
+            }
+
+            free(input);
         }
-
-        free(input);
+        free(input); // In case the program exits normally, free the memory.
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
     }
 
     return 0;
