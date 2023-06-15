@@ -95,7 +95,6 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
     }
 }
 
-
 std::vector<std::string> getCommandMatches(const char* text) {
     std::vector<std::string> matches;
     std::string pathEnv = std::getenv("PATH");
@@ -163,6 +162,16 @@ int main() {
                 {"export", Commands::cmdExport}
         };
 
+        struct passwd *pw = getpwuid(getuid());
+        const char *homedir = pw->pw_dir;
+        std::string historyPath = std::string(homedir) + "/.gushHis";
+
+        if (read_history(historyPath.c_str()) != 0) {
+            if (errno != ENOENT) {
+                std::cerr << "Error reading history file: " << historyPath << "\n";
+            }
+        }
+
         char* input;
         while (true) {
             char currentDir[PATH_MAX];
@@ -175,6 +184,10 @@ int main() {
             }
 
             add_history(input);
+
+            if (write_history(historyPath.c_str()) != 0) {
+                std::cerr << "Error writing history file: " << historyPath << "\n";
+            }
 
             std::string command(input);
             std::vector<std::string> commands = splitCommand(command);
