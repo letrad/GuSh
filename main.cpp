@@ -12,8 +12,27 @@
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
+#include <limits.h>
+#include <pwd.h>
 #include <filesystem>
 #include "Commands.h"
+
+void handleToken(const std::string& token, std::vector<std::string>& tokens) {
+    if (!token.empty()) {
+        if (token[0] == '$') {
+            auto it = Commands::envVariables.find(token.substr(1));
+            if (it != Commands::envVariables.end()) {
+                tokens.push_back(it->second);
+            }
+        } else if (token == "~") {
+            struct passwd *pw = getpwuid(getuid());
+            const char *homedir = pw->pw_dir;
+            tokens.push_back(homedir);
+        } else {
+            tokens.push_back(token);
+        }
+    }
+}
 
 std::vector<std::string> splitCommand(const std::string& command) {
     std::vector<std::string> tokens;
@@ -23,17 +42,8 @@ std::vector<std::string> splitCommand(const std::string& command) {
 
     for (char c : command) {
         if (c == ' ' && !inSingleQuote && !inDoubleQuote) {
-            if (!token.empty()) {
-                if (token[0] == '$') {
-                    auto it = Commands::envVariables.find(token.substr(1));
-                    if (it != Commands::envVariables.end()) {
-                        tokens.push_back(it->second);
-                    }
-                } else {
-                    tokens.push_back(token);
-                }
-                token.clear();
-            }
+            handleToken(token, tokens);
+            token.clear();
         } else if (c == '\'' && !inDoubleQuote) {
             inSingleQuote = !inSingleQuote;
         } else if (c == '\"' && !inSingleQuote) {
@@ -43,22 +53,17 @@ std::vector<std::string> splitCommand(const std::string& command) {
         }
     }
 
-    if (!token.empty()) {
-        if (token[0] == '$') {
-            auto it = Commands::envVariables.find(token.substr(1));
-            if (it != Commands::envVariables.end()) {
-                tokens.push_back(it->second);
-            }
-        } else {
-            tokens.push_back(token);
-        }
-    }
+    handleToken(token, tokens);
 
     return tokens;
 }
 
-
 void executeExternalCommand(const std::vector<std::string>& commands) {
+    if (commands.empty()) {
+        std::cerr << "GuSH: No command provided\n";
+        return;
+    }
+
     pid_t pid = fork();
 
     if (pid < 0) {
@@ -75,8 +80,9 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
 
         execvp(cstyle_commands[0], cstyle_commands.data());
 
-        std::cerr << "Execvp failed!\n";
-        return;
+        // If execvp returns, an error occurred.
+        std::cerr << "GuSH: The specified command could not be found: " << commands[0] << "\n";
+        exit(EXIT_FAILURE);  // End the child process.
     } else {  // Parent process
         int status;
         waitpid(pid, &status, 0);
@@ -88,7 +94,6 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
         }
     }
 }
-
 
 
 std::vector<std::string> getCommandMatches(const char* text) {
@@ -105,7 +110,7 @@ std::vector<std::string> getCommandMatches(const char* text) {
                 }
             }
         } catch (const std::filesystem::filesystem_error& e) {
-            std::cerr << "Filesystem error: " << e.what() << std::endl;
+            std::cerr << "GuSH: Filesystem error: " << e.what() << std::endl;
         }
     }
     return matches;
@@ -159,7 +164,16 @@ int main() {
         };
 
         char* input;
-        while ((input = readline("> ")) != nullptr) {
+        while (true) {
+            char currentDir[PATH_MAX];
+            if (getcwd(currentDir, sizeof(currentDir)) != nullptr) {
+                std::string prompt = std::string(currentDir) + " > ";
+                input = readline(prompt.c_str());
+            } else {
+                std::cerr << "Failed to get current directory" << std::endl;
+                break;
+            }
+
             add_history(input);
 
             std::string command(input);
@@ -175,6 +189,7 @@ int main() {
 
             free(input);
         }
+
         free(input); // In case the program exits normally, free the memory.
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
