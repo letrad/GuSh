@@ -3,6 +3,8 @@
 #include <unistd.h>
 
 namespace Commands {
+    std::unordered_map<std::string, std::string> envVariables;
+
     void cmdPwd(const std::vector<std::string>&) {
         char currentDir[256];
         if (getcwd(currentDir, sizeof(currentDir)) != nullptr) {
@@ -14,16 +16,29 @@ namespace Commands {
 
     void cmdCd(const std::vector<std::string>& commands) {
         if (commands.size() < 2) {
-            // Just do nothing. Optionally cd could force an argument, I am not sure if I want to do that, since it seems impractical.
-            // std::cout << "cd: Missing directory argument" << std::endl;
             return;
         }
 
         const std::string& directory = commands[1];
-        if (chdir(directory.c_str()) == 0) {
-        } else {
+        if (chdir(directory.c_str()) != 0) {
             std::cout << "cd: Failed to change directory to " << directory << std::endl;
         }
     }
 
+    void cmdExport(const std::vector<std::string>& commands) {
+        if (commands.size() < 2) {
+            std::cout << "export: Missing variable assignment" << std::endl;
+            return;
+        }
+
+        size_t pos = commands[1].find("=");
+        if (pos == std::string::npos) {
+            std::cout << "export: Invalid variable assignment" << std::endl;
+            return;
+        }
+
+        std::string varName = commands[1].substr(0, pos);
+        std::string varValue = commands[1].substr(pos + 1);
+        envVariables[varName] = varValue;
+    }
 }

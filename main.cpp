@@ -24,7 +24,14 @@ std::vector<std::string> splitCommand(const std::string& command) {
     for (char c : command) {
         if (c == ' ' && !inSingleQuote && !inDoubleQuote) {
             if (!token.empty()) {
-                tokens.push_back(token);
+                if (token[0] == '$') {
+                    auto it = Commands::envVariables.find(token.substr(1));
+                    if (it != Commands::envVariables.end()) {
+                        tokens.push_back(it->second);
+                    }
+                } else {
+                    tokens.push_back(token);
+                }
                 token.clear();
             }
         } else if (c == '\'' && !inDoubleQuote) {
@@ -37,7 +44,14 @@ std::vector<std::string> splitCommand(const std::string& command) {
     }
 
     if (!token.empty()) {
-        tokens.push_back(token);
+        if (token[0] == '$') {
+            auto it = Commands::envVariables.find(token.substr(1));
+            if (it != Commands::envVariables.end()) {
+                tokens.push_back(it->second);
+            }
+        } else {
+            tokens.push_back(token);
+        }
     }
 
     return tokens;
@@ -90,8 +104,8 @@ std::vector<std::string> getCommandMatches(const char* text) {
                     matches.push_back(filename);
                 }
             }
-        } catch (const std::filesystem::filesystem_error&) {
-            // Handle any filesystem errors and continue to the next path
+        } catch (const std::filesystem::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
         }
     }
     return matches;
@@ -141,6 +155,7 @@ int main() {
                 }},
                 {"pwd", Commands::cmdPwd},
                 {"cd", Commands::cmdCd},
+                {"export", Commands::cmdExport}
         };
 
         char* input;
@@ -151,8 +166,7 @@ int main() {
             std::vector<std::string> commands = splitCommand(command);
 
             const std::string& cmd = commands[0];
-            auto it = commandMap
-                    .find(cmd);
+            auto it = commandMap.find(cmd);
             if (it != commandMap.end()) {
                 it->second(commands);
             } else {
