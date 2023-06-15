@@ -14,7 +14,8 @@ namespace Commands {
 
     void cmdCd(const std::vector<std::string>& commands) {
         if (commands.size() < 2) {
-            std::cout << "cd: Missing directory argument" << std::endl;
+            // Just do nothing. Optionally cd could force an argument, I am not sure if I want to do that, since it seems impractical.
+            // std::cout << "cd: Missing directory argument" << std::endl;
             return;
         }
 
@@ -24,4 +25,5 @@ namespace Commands {
             std::cout << "cd: Failed to change directory to " << directory << std::endl;
         }
     }
+
 }
