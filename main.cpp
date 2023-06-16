@@ -34,7 +34,8 @@ void handleToken(const std::string& token, std::vector<std::string>& tokens) {
     }
 }
 
-std::vector<std::string> splitCommand(const std::string& command) {
+std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
+    std::vector<std::vector<std::string>> commands;
     std::vector<std::string> tokens;
     std::string token;
     bool inSingleQuote = false;
@@ -43,6 +44,11 @@ std::vector<std::string> splitCommand(const std::string& command) {
     for (char c : command) {
         if (c == ' ' && !inSingleQuote && !inDoubleQuote) {
             handleToken(token, tokens);
+            token.clear();
+        } else if (c == '|' && !inSingleQuote && !inDoubleQuote) {
+            handleToken(token, tokens);
+            commands.push_back(tokens);
+            tokens.clear();
             token.clear();
         } else if (c == '\'' && !inDoubleQuote) {
             inSingleQuote = !inSingleQuote;
@@ -54,9 +60,11 @@ std::vector<std::string> splitCommand(const std::string& command) {
     }
 
     handleToken(token, tokens);
+    commands.push_back(tokens);
 
-    return tokens;
+    return commands;
 }
+
 
 void executeExternalCommand(const std::vector<std::string>& commands) {
     if (commands.empty()) {
@@ -91,6 +99,71 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
             std::cerr << "Child process error code: " << WEXITSTATUS(status) << "\n";
         } else if (WIFSIGNALED(status)) {
             std::cerr << "Child process killed by signal: " << WTERMSIG(status) << "\n";
+        }
+    }
+}
+
+void executePipedCommands(std::vector<std::vector<std::string>>& commands) {
+    int pipefd[2];
+    pid_t p1, p2;
+
+    if (pipe(pipefd) < 0) {
+        std::cerr << "Pipe failed!\n";
+        return;
+    }
+    p1 = fork();
+    if (p1 < 0) {
+        std::cerr << "Fork failed!\n";
+        return;
+    }
+
+    if (p1 == 0) {
+        // Child 1 executing..
+        // It only needs to write at the write end
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+
+        std::vector<char*> cstyle_commands;
+        for (const auto& cmd : commands[0]) {
+            cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
+        }
+        cstyle_commands.push_back(nullptr);
+        if (execvp(cstyle_commands[0], cstyle_commands.data()) < 0) {
+            std::cerr << "GuSH: The specified command could not be found: " << commands[0][0] << "\n";
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        // Parent executing
+        p2 = fork();
+
+        if (p2 < 0) {
+            std::cerr << "Fork failed!\n";
+            return;
+        }
+
+        // Child 2 executing..
+        // It only needs to read at the read end
+        if (p2 == 0) {
+            close(pipefd[1]);
+            dup2(pipefd[0], STDIN_FILENO);
+            close(pipefd[0]);
+
+            std::vector<char*> cstyle_commands;
+            for (const auto& cmd : commands[1]) {
+                cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
+            }
+            cstyle_commands.push_back(nullptr);
+            if (execvp(cstyle_commands[0], cstyle_commands.data()) < 0) {
+                std::cerr << "GuSH: The specified command could not be found: " << commands[1][0] << "\n";
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            // Parent executing, waiting for two children
+            close(pipefd[0]);
+            close(pipefd[1]);
+            wait(NULL);
+            wait(NULL);
         }
     }
 }
@@ -190,14 +263,18 @@ int main() {
             }
 
             std::string command(input);
-            std::vector<std::string> commands = splitCommand(command);
+            std::vector<std::vector<std::string>> commands = splitCommand(command);
 
-            const std::string& cmd = commands[0];
-            auto it = commandMap.find(cmd);
-            if (it != commandMap.end()) {
-                it->second(commands);
-            } else {
-                executeExternalCommand(commands);
+            if (commands.size() > 1) {
+                executePipedCommands(commands);
+            } else if (!commands[0].empty()) {
+                const std::string& cmd = commands[0][0];
+                auto it = commandMap.find(cmd);
+                if (it != commandMap.end()) {
+                    it->second(commands[0]);
+                } else {
+                    executeExternalCommand(commands[0]);
+                }
             }
 
             free(input);
