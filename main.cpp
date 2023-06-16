@@ -104,69 +104,59 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
 }
 
 void executePipedCommands(std::vector<std::vector<std::string>>& commands) {
-    int pipefd[2];
-    pid_t p1, p2;
-
-    if (pipe(pipefd) < 0) {
-        std::cerr << "Pipe failed!\n";
-        return;
-    }
-    p1 = fork();
-    if (p1 < 0) {
-        std::cerr << "Fork failed!\n";
-        return;
-    }
-
-    if (p1 == 0) {
-        // Child 1 executing..
-        // It only needs to write at the write end
-        close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        close(pipefd[1]);
-
-        std::vector<char*> cstyle_commands;
-        for (const auto& cmd : commands[0]) {
-            cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
-        }
-        cstyle_commands.push_back(nullptr);
-        if (execvp(cstyle_commands[0], cstyle_commands.data()) < 0) {
-            std::cerr << "GuSH: The specified command could not be found: " << commands[0][0] << "\n";
+    int pipefds[2 * commands.size() - 2];
+    for (int i = 0; i < commands.size() - 1; ++i) {
+        if (pipe(pipefds + i * 2) < 0) {
+            perror("couldn't pipe");
             exit(EXIT_FAILURE);
         }
-    } else {
-        // Parent executing
-        p2 = fork();
+    }
 
-        if (p2 < 0) {
-            std::cerr << "Fork failed!\n";
-            return;
-        }
+    for (int i = 0; i < commands.size(); ++i) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("error in fork");
+            exit(EXIT_FAILURE);
+        } else if (pid == 0) {
+            // If not last command
+            if (i < commands.size() - 1) {
+                if (dup2(pipefds[i * 2 + 1], STDOUT_FILENO) < 0) {
+                    perror("dup2");
+                    exit(EXIT_FAILURE);
+                }
+            }
 
-        // Child 2 executing..
-        // It only needs to read at the read end
-        if (p2 == 0) {
-            close(pipefd[1]);
-            dup2(pipefd[0], STDIN_FILENO);
-            close(pipefd[0]);
+            // If not first command && j!= 2*numPipes
+            if (i != 0) {
+                if (dup2(pipefds[i * 2 - 2], STDIN_FILENO) < 0) {
+                    perror("dup2");
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+            for (int j = 0; j < 2 * commands.size() - 2; ++j)
+                close(pipefds[j]);
 
             std::vector<char*> cstyle_commands;
-            for (const auto& cmd : commands[1]) {
+            for (const auto& cmd : commands[i]) {
                 cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
             }
             cstyle_commands.push_back(nullptr);
+
             if (execvp(cstyle_commands[0], cstyle_commands.data()) < 0) {
-                std::cerr << "GuSH: The specified command could not be found: " << commands[1][0] << "\n";
+                perror(*cstyle_commands.begin());
                 exit(EXIT_FAILURE);
             }
-        } else {
-            // Parent executing, waiting for two children
-            close(pipefd[0]);
-            close(pipefd[1]);
-            wait(NULL);
-            wait(NULL);
         }
     }
+
+    for (int i = 0; i < 2 * commands.size() - 2; ++i)
+        close(pipefds[i]);
+
+    for (int i = 0; i < commands.size(); ++i)
+        wait(NULL);
 }
+
 
 std::vector<std::string> getCommandMatches(const char* text) {
     std::vector<std::string> matches;
