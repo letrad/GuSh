@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <cstring>
 #include <cstdlib>
-#include <algorithm>
+#include <regex>
 #include <limits.h>
 #include <pwd.h>
 #include <filesystem>
@@ -47,6 +47,26 @@ void handleToken(const std::string& token, std::vector<std::string>& tokens) {
     }
 }
 
+std::string executeCommandForSubstitution(const std::string& command) {
+    char buffer[128];
+    std::string result = "";
+
+    // Open pipe to file
+    FILE* pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        return "popen failed!";
+    }
+
+    // Read till end of process:
+    while (!feof(pipe)) {
+        if (fgets(buffer, 128, pipe) != NULL)
+            result += buffer;
+    }
+
+    pclose(pipe);
+    return result;
+}
+
 std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
     std::vector<std::vector<std::string>> commands;
     std::vector<std::string> tokens;
@@ -56,11 +76,9 @@ std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
 
     std::string commandWithAliasesReplaced = command;
     for (const auto& alias : Commands::aliasMap) {
-        size_t start_pos = 0;
-        while((start_pos = commandWithAliasesReplaced.find(alias.first, start_pos)) != std::string::npos) {
-            commandWithAliasesReplaced.replace(start_pos, alias.first.length(), alias.second);
-            start_pos += alias.second.length();
-        }
+        std::string pattern = "(\\b)" + alias.first + "(\\b)";  // \b represents a word boundary
+        std::regex r(pattern);
+        commandWithAliasesReplaced = std::regex_replace(commandWithAliasesReplaced, r, alias.second);
     }
 
     for (char c : commandWithAliasesReplaced) {
@@ -297,6 +315,19 @@ int main() {
             }
 
             std::string command(input);
+
+            // New code to handle command substitution
+            std::size_t pos = command.find("$(");
+            while (pos != std::string::npos) {
+                std::size_t endPos = command.find(")", pos);
+                if (endPos != std::string::npos) {
+                    std::string innerCommand = command.substr(pos+2, endPos-pos-2);
+                    std::string substitution = executeCommandForSubstitution(innerCommand);
+                    command.replace(pos, endPos-pos+1, substitution);
+                }
+                pos = command.find("$(", pos + 1);
+            }
+
             std::vector<std::vector<std::string>> commands = splitCommand(command);
 
             if (commands.size() > 1) {
