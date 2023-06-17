@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <pwd.h>
 #include <filesystem>
+#include <fstream>
 #include "Commands.h"
 
 const char* getHomeDirectory() {
@@ -271,6 +272,33 @@ char** commandCompletion(const char* text, int start, int end) {
     return completionMatches;
 }
 
+void executeConfigFileCommands(std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap) {
+    std::string configFilePath = std::string(getHomeDirectory()) + "/.config.gush";
+    std::ifstream configFile(configFilePath);
+
+    if (configFile.is_open()) {
+        std::string line;
+        while (std::getline(configFile, line)) {
+            // Pass each line of the file to the command execution part of the shell
+            std::vector<std::vector<std::string>> commands = splitCommand(line);
+            if (commands.size() > 1) {
+                executePipedCommands(commands);
+            } else if (!commands[0].empty()) {
+                const std::string& cmd = commands[0][0];
+                auto it = commandMap.find(cmd);
+                if (it != commandMap.end()) {
+                    it->second(commands[0]);
+                } else {
+                    executeExternalCommand(commands[0]);
+                }
+            }
+        }
+        configFile.close();
+    } else {
+        std::cerr << "Unable to open .config.gush file" << std::endl;
+    }
+}
+
 int main() {
     // Just to stop the shell from being ^C-ed
     signal(SIGINT, SIG_IGN);
@@ -295,6 +323,7 @@ int main() {
                 std::cerr << "Error reading history file: " << historyPath << "\n";
             }
         }
+        executeConfigFileCommands(commandMap);
 
         char* input;
         while (true) {
