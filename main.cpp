@@ -17,6 +17,17 @@
 #include <filesystem>
 #include "Commands.h"
 
+std::string getShortenedPath(const std::string& path) {
+    std::string shortenedPath = path;
+    struct passwd *pw = getpwuid(getuid());
+    const char *homedir = pw->pw_dir;
+
+    if (path.find(homedir) == 0) {
+        shortenedPath.replace(0, std::string(homedir).length(), "~");
+    }
+
+    return shortenedPath;
+}
 void handleToken(const std::string& token, std::vector<std::string>& tokens) {
     if (!token.empty()) {
         if (token[0] == '$') {
@@ -239,7 +250,8 @@ int main() {
         while (true) {
             char currentDir[PATH_MAX];
             if (getcwd(currentDir, sizeof(currentDir)) != nullptr) {
-                std::string prompt = std::string(currentDir) + " > ";
+                // Just make it look like robbyrussel while I work on things
+                std::string prompt = "\u001b[1m\u001b[96m" + std::string(getShortenedPath(currentDir)) + " \u001b[32m➜\033[0m ";
                 input = readline(prompt.c_str());
             } else {
                 std::cerr << "Failed to get current directory" << std::endl;
