@@ -4,6 +4,7 @@
 
 namespace Commands {
     std::unordered_map<std::string, std::string> envVariables;
+    std::unordered_map<std::string, std::string> aliasMap;
 
     void cmdPwd(const std::vector<std::string>&) {
         char currentDir[256];
@@ -40,5 +41,13 @@ namespace Commands {
         std::string varName = commands[1].substr(0, pos);
         std::string varValue = commands[1].substr(pos + 1);
         envVariables[varName] = varValue;
+    }
+
+    void cmdAlias(const std::vector<std::string>& commands) {
+        if (commands.size() < 3) {
+            std::cerr << "Usage: alias [alias_name] [command]\n";
+            return;
+        }
+        aliasMap[commands[1]] = commands[2];
     }
 }

@@ -17,10 +17,13 @@
 #include <filesystem>
 #include "Commands.h"
 
+const char* getHomeDirectory() {
+    return getpwuid(getuid())->pw_dir;
+}
+
 std::string getShortenedPath(const std::string& path) {
     std::string shortenedPath = path;
-    struct passwd *pw = getpwuid(getuid());
-    const char *homedir = pw->pw_dir;
+    const char *homedir = getHomeDirectory();
 
     if (path.find(homedir) == 0) {
         shortenedPath.replace(0, std::string(homedir).length(), "~");
@@ -28,6 +31,7 @@ std::string getShortenedPath(const std::string& path) {
 
     return shortenedPath;
 }
+
 void handleToken(const std::string& token, std::vector<std::string>& tokens) {
     if (!token.empty()) {
         if (token[0] == '$') {
@@ -36,9 +40,7 @@ void handleToken(const std::string& token, std::vector<std::string>& tokens) {
                 tokens.push_back(it->second);
             }
         } else if (token == "~") {
-            struct passwd *pw = getpwuid(getuid());
-            const char *homedir = pw->pw_dir;
-            tokens.push_back(homedir);
+            tokens.push_back(getHomeDirectory());
         } else {
             tokens.push_back(token);
         }
@@ -52,7 +54,16 @@ std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
     bool inSingleQuote = false;
     bool inDoubleQuote = false;
 
-    for (char c : command) {
+    std::string commandWithAliasesReplaced = command;
+    for (const auto& alias : Commands::aliasMap) {
+        size_t start_pos = 0;
+        while((start_pos = commandWithAliasesReplaced.find(alias.first, start_pos)) != std::string::npos) {
+            commandWithAliasesReplaced.replace(start_pos, alias.first.length(), alias.second);
+            start_pos += alias.second.length();
+        }
+    }
+
+    for (char c : commandWithAliasesReplaced) {
         if (c == ' ' && !inSingleQuote && !inDoubleQuote) {
             handleToken(token, tokens);
             token.clear();
@@ -77,10 +88,30 @@ std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
 }
 
 
+
 void executeExternalCommand(const std::vector<std::string>& commands) {
     if (commands.empty()) {
         std::cerr << "GuSH: No command provided\n";
         return;
+    }
+
+    // Check if the command is an alias
+    std::vector<std::string> finalCommands;
+    auto aliasIter = Commands::aliasMap.find(commands[0]);
+    if (aliasIter != Commands::aliasMap.end()) {
+        // Command is an alias, replace it with the actual command
+        std::istringstream ss(aliasIter->second);
+        std::string token;
+        while (std::getline(ss, token, ' ')) {
+            finalCommands.push_back(token);
+        }
+        // Add any arguments
+        for (size_t i = 1; i < commands.size(); i++) {
+            finalCommands.push_back(commands[i]);
+        }
+    } else {
+        // Command is not an alias, execute as normal
+        finalCommands = commands;
     }
 
     pid_t pid = fork();
@@ -92,7 +123,7 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
         signal(SIGINT, SIG_DFL);  // Reset SIGINT handler
 
         std::vector<char*> cstyle_commands;
-        for (const auto& cmd : commands) {
+        for (const auto& cmd : finalCommands) {
             cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
         }
         cstyle_commands.push_back(nullptr);
@@ -100,7 +131,7 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
         execvp(cstyle_commands[0], cstyle_commands.data());
 
         // If execvp returns, an error occurred.
-        std::cerr << "GuSH: The specified command could not be found: " << commands[0] << "\n";
+        std::cerr << "GuSH: The specified command could not be found: " << finalCommands[0] << "\n";
         exit(EXIT_FAILURE);  // End the child process.
     } else {  // Parent process
         int status;
@@ -113,6 +144,7 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
         }
     }
 }
+
 
 void executePipedCommands(std::vector<std::vector<std::string>>& commands) {
     int pipefds[2 * commands.size() - 2];
@@ -233,11 +265,11 @@ int main() {
                 }},
                 {"pwd", Commands::cmdPwd},
                 {"cd", Commands::cmdCd},
-                {"export", Commands::cmdExport}
+                {"export", Commands::cmdExport},
+                {"alias", Commands::cmdAlias}
         };
 
-        struct passwd *pw = getpwuid(getuid());
-        const char *homedir = pw->pw_dir;
+        const char *homedir = getHomeDirectory();
         std::string historyPath = std::string(homedir) + "/.gushHis";
 
         if (read_history(historyPath.c_str()) != 0) {
