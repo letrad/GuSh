@@ -44,10 +44,18 @@ namespace Commands {
     }
 
     void cmdAlias(const std::vector<std::string>& commands) {
-        if (commands.size() < 3) {
-            std::cerr << "Usage: alias [alias_name] [command]\n";
+        if (commands.size() < 2) {
+            std::cerr << "Usage: alias [alias_name]=[command]\n";
             return;
         }
-        aliasMap[commands[1]] = commands[2];
+        size_t pos = commands[1].find("=");
+        if (pos == std::string::npos) {
+            std::cout << "Usage: alias [alias_name]=[command]" << std::endl;
+            return;
+        }
+        std::string varName = commands[1].substr(0, pos);
+        std::string varValue = commands[1].substr(pos + 1);
+
+        aliasMap[varName] = varValue;
     }
 }
