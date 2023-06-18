@@ -106,8 +106,6 @@ std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
     return commands;
 }
 
-
-
 void executeExternalCommand(const std::vector<std::string>& commands) {
     if (commands.empty()) {
         std::cerr << "GuSH: No command provided\n";
@@ -164,7 +162,6 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
     }
 }
 
-
 void executePipedCommands(std::vector<std::vector<std::string>>& commands) {
     int pipefds[2 * commands.size() - 2];
     for (int i = 0; i < commands.size() - 1; ++i) {
@@ -219,7 +216,6 @@ void executePipedCommands(std::vector<std::vector<std::string>>& commands) {
         wait(NULL);
 }
 
-
 std::vector<std::string> getCommandMatches(const char* text) {
     std::vector<std::string> matches;
     std::string pathEnv = std::getenv("PATH");
@@ -272,6 +268,32 @@ char** commandCompletion(const char* text, int start, int end) {
     return completionMatches;
 }
 
+std::string runCmd(const std::string& command) {
+    std::string modifiedCommand = command;
+
+    // Process command substitution
+    std::size_t pos = modifiedCommand.find("$(");
+    while (pos != std::string::npos) {
+        std::size_t endPos = modifiedCommand.find(")", pos);
+        if (endPos != std::string::npos) {
+            std::string innerCommand = modifiedCommand.substr(pos + 2, endPos - pos - 2);
+            std::string substitution = executeCommandForSubstitution(innerCommand);
+            modifiedCommand.replace(pos, endPos - pos + 1, substitution);
+        }
+        pos = modifiedCommand.find("$(", pos + 1);
+    }
+
+    std::vector<std::vector<std::string>> commands = splitCommand(modifiedCommand);
+
+    if (commands.size() > 1) {
+        executePipedCommands(commands);
+    } else if (!commands[0].empty()) {
+        executeExternalCommand(commands[0]);
+    }
+
+    return "";
+}
+
 void executeConfigFileCommands(std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap) {
     std::string configFilePath = std::string(getHomeDirectory()) + "/.config.gush";
     std::ifstream configFile(configFilePath);
@@ -280,18 +302,7 @@ void executeConfigFileCommands(std::unordered_map<std::string, std::function<voi
         std::string line;
         while (std::getline(configFile, line)) {
             // Pass each line of the file to the command execution part of the shell
-            std::vector<std::vector<std::string>> commands = splitCommand(line);
-            if (commands.size() > 1) {
-                executePipedCommands(commands);
-            } else if (!commands[0].empty()) {
-                const std::string& cmd = commands[0][0];
-                auto it = commandMap.find(cmd);
-                if (it != commandMap.end()) {
-                    it->second(commands[0]);
-                } else {
-                    executeExternalCommand(commands[0]);
-                }
-            }
+            runCmd(line);
         }
         configFile.close();
     } else {
@@ -315,7 +326,7 @@ int main() {
                 {"alias", Commands::cmdAlias}
         };
 
-        const char *homedir = getHomeDirectory();
+        const char* homedir = getHomeDirectory();
         std::string historyPath = std::string(homedir) + "/.gushHis";
 
         if (read_history(historyPath.c_str()) != 0) {
@@ -344,32 +355,7 @@ int main() {
             }
 
             std::string command(input);
-
-            // New code to handle command substitution
-            std::size_t pos = command.find("$(");
-            while (pos != std::string::npos) {
-                std::size_t endPos = command.find(")", pos);
-                if (endPos != std::string::npos) {
-                    std::string innerCommand = command.substr(pos+2, endPos-pos-2);
-                    std::string substitution = executeCommandForSubstitution(innerCommand);
-                    command.replace(pos, endPos-pos+1, substitution);
-                }
-                pos = command.find("$(", pos + 1);
-            }
-
-            std::vector<std::vector<std::string>> commands = splitCommand(command);
-
-            if (commands.size() > 1) {
-                executePipedCommands(commands);
-            } else if (!commands[0].empty()) {
-                const std::string& cmd = commands[0][0];
-                auto it = commandMap.find(cmd);
-                if (it != commandMap.end()) {
-                    it->second(commands[0]);
-                } else {
-                    executeExternalCommand(commands[0]);
-                }
-            }
+            runCmd(command);
 
             free(input);
         }
