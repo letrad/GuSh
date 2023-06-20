@@ -28,7 +28,7 @@ const char* getHomeDirectory() {
     return getpwuid(getuid())->pw_dir;
 }
 
-std::string getShortenedPath(const std::string& path) {
+std::string shortenPath(const std::string& path) {
     std::string shortenedPath = path;
     const char *homedir = getHomeDirectory();
 
@@ -54,7 +54,7 @@ void handleToken(const std::string& token, std::vector<std::string>& tokens) {
     }
 }
 
-std::string executeCommandForSubstitution(const std::string& command) {
+std::string exSubstitute(const std::string& command) {
     char buffer[128];
     std::string result = "";
 
@@ -107,10 +107,13 @@ std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
 	}
     
     commands.push_back(tokens);
+
     return commands;
 }
 
-void executeExternalCommand(const std::vector<std::string>& commands) {
+
+
+void exExternal(const std::vector<std::string>& commands) {
     if (commands.empty()) {
         std::cerr << "GuSH: No command provided\n";
         return;
@@ -166,7 +169,8 @@ void executeExternalCommand(const std::vector<std::string>& commands) {
     }
 }
 
-void executePipedCommands(std::vector<std::vector<std::string>>& commands) {
+
+void exPipedCommands(std::vector<std::vector<std::string>>& commands) {
     int pipefds[2 * commands.size() - 2];
     for (int i = 0; i < commands.size() - 1; ++i) {
         if (pipe(pipefds + i * 2) < 0) {
@@ -219,6 +223,7 @@ void executePipedCommands(std::vector<std::vector<std::string>>& commands) {
     for (int i = 0; i < commands.size(); ++i)
         wait(NULL);
 }
+
 
 std::vector<std::string> getCommandMatches(const char* text) {
     std::vector<std::string> matches;
@@ -302,58 +307,60 @@ char** commandCompletion(const char* text, int start, int end) {
     return completionMatches;
 }
 
-static std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap;
+std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap = {
+            {"exit", [](const std::vector<std::string>&) {
+                exit(0);
+            }},
+            {"pwd", Commands::cmdPwd},
+            {"cd", Commands::cmdCd},
+            {"export", Commands::cmdExport},
+            {"alias", Commands::cmdAlias}
+};
 
-static bool executeBuiltin(std::vector<std::string> command) {
-	//Nroot here,i think you broke commandMap here,so as a tmp fix i will check the above commandMap for builtins
-	if(command.size()<1) return false;
-    if(commandMap.count(command[0])) {
-		auto cb=commandMap[command[0]];
-		std::vector<std::string> slice=command;
-		slice.erase(slice.begin()); //Remove command name
-		cb(slice);
-		return true;
-	}
-	return false;
-}
-
-std::string runCmd(const std::string& command) {
+std::string exCmd(const std::string& command) {
     std::string modifiedCommand = command;
 
-    // Process command substitution
-    std::size_t pos = modifiedCommand.find("$(");
+    // New code to handle command substitution
+    std::size_t pos = command.find("$(");
     while (pos != std::string::npos) {
-        std::size_t endPos = modifiedCommand.find(")", pos);
+        std::size_t endPos = command.find(")", pos);
         if (endPos != std::string::npos) {
-            std::string innerCommand = modifiedCommand.substr(pos + 2, endPos - pos - 2);
-            std::string substitution = executeCommandForSubstitution(innerCommand);
-            modifiedCommand.replace(pos, endPos - pos + 1, substitution);
+            std::string innerCommand = command.substr(pos+2, endPos-pos-2);
+            std::string substitution = exSubstitute(innerCommand);
+            modifiedCommand.replace(pos, endPos-pos+1, substitution);
         }
-        pos = modifiedCommand.find("$(", pos + 1);
+        pos = command.find("$(", pos + 1);
     }
 
-    std::vector<std::vector<std::string>> commands = splitCommand(modifiedCommand);
-
+    std::vector<std::vector<std::string>> commands = splitCommand(command);
 
     if (commands.size() > 1) {
-        executePipedCommands(commands);
-    } else if (!commands.empty()) {
-		if(!executeBuiltin(commands[0]))
-			executeExternalCommand(commands[0]);
+        exPipedCommands(commands);
+    } else if(commands.size()) {
+        if (!commands[0].empty()) {
+            const std::string& cmd = commands[0][0];
+            auto it = commandMap.find(cmd);
+            if (it != commandMap.end()) {
+                //First item in commands is the command name,so i will remove it as I only want the arguments
+	        commands[0].erase(commands[0].begin());
+                it->second(commands[0]);
+            } else {
+                exExternal(commands[0]);
+            }
+        }
     }
 
     return "";
 }
 
-void executeConfigFileCommands(std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap) {
+void exConfig() {
     std::string configFilePath = std::string(getHomeDirectory()) + "/.config.gush";
     std::ifstream configFile(configFilePath);
 
     if (configFile.is_open()) {
         std::string line;
         while (std::getline(configFile, line)) {
-            // Pass each line of the file to the command execution part of the shell
-            runCmd(line);
+            exCmd(line);
         }
         configFile.close();
     } else {
@@ -365,20 +372,7 @@ int main() {
     // Just to stop the shell from being ^C-ed
     signal(SIGINT, SIG_IGN);
     try {
-        rl_attempted_completion_function = reinterpret_cast<CompletionFunc>(commandCompletion);
-
-         std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> tmp = {
-                {"exit", [](const std::vector<std::string>&) {
-                    exit(0);
-                }},
-                {"pwd", Commands::cmdPwd},
-                {"cd", Commands::cmdCd},
-                {"export", Commands::cmdExport},
-                {"alias", Commands::cmdAlias}
-        };
-        commandMap=tmp;
-
-        const char* homedir = getHomeDirectory();
+        const char *homedir = getHomeDirectory();
         std::string historyPath = std::string(homedir) + "/.gushHis";
 
         if (read_history(historyPath.c_str()) != 0) {
@@ -386,14 +380,13 @@ int main() {
                 std::cerr << "Error reading history file: " << historyPath << "\n";
             }
         }
-        executeConfigFileCommands(commandMap);
-
+        exConfig();
         char* input;
         while (true) {
             char currentDir[PATH_MAX];
             if (getcwd(currentDir, sizeof(currentDir)) != nullptr) {
                 // Just make it look like robbyrussel while I work on things
-                std::string prompt = "\u001b[1m\u001b[96m" + std::string(getShortenedPath(currentDir)) + " \u001b[32m➜\033[0m ";
+                std::string prompt = "\u001b[1m\u001b[96m" + std::string(shortenPath(currentDir)) + " \u001b[32m➜\033[0m ";
                 input = readline(prompt.c_str());
             } else {
                 std::cerr << "Failed to get current directory" << std::endl;
@@ -406,9 +399,7 @@ int main() {
                 std::cerr << "Error writing history file: " << historyPath << "\n";
             }
 
-            std::string command(input);
-            runCmd(command);
-
+            exCmd(input);
             free(input);
         }
 

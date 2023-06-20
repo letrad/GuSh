@@ -37,7 +37,8 @@ static bool IsDelimeter(char chr) {
 }
 static bool IsNameChar(char chr) {
   // I put '-' here so '-f' appears as a single token
-  return isalnum(chr) || chr == '.' || chr == '?' || chr == '*' || chr == '-';
+  return isalnum(chr) || chr == '.' || chr == '?' || chr == '*' || chr == '-'
+	|| chr == '/';
 }
 std::string LexItem(const std::string input, size_t &idx, bool is_arith) {
   std::string token;
@@ -370,6 +371,14 @@ std::vector<std::string> ExpandToken(const std::string &input) {
   std::vector<std::string> ret;
   std::string cur_nugget = "";
   size_t i = 0;
+//Dont expand strings
+  if(input.size())
+    switch(input[0]) {
+        case '\'':
+        case '"':
+           ret.push_back(input);
+	   return ret;
+    }
   while (i < input.size()) {
     if (isblank(input[i])) {
       while (i < input.size())
