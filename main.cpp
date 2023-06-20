@@ -71,7 +71,7 @@ std::string executeCommandForSubstitution(const std::string& command) {
 
 std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
     std::vector<std::vector<std::string>> commands;
-    std::vector<std::string> tokens;
+    std::vector<std::string> tokens,expanded;
     std::string token; //See Lexer.cpp
     size_t idx=0;
 
@@ -85,11 +85,14 @@ std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
     try {
 		while(idx<command.size()) {
 			token=Lexer::LexItem(command,idx);
-			if(token=="|") {
-				commands.push_back(tokens);
-				tokens.clear();
-			} else {
-				handleToken(token,tokens);
+			expanded=Lexer::ExpandToken(token);
+			for(auto token :expanded) {
+				if(token=="|") {
+					commands.push_back(tokens);
+					tokens.clear();
+				} else {
+					handleToken(token,tokens);
+				}
 			}
 		}
 	} catch(Lexer::CLexerExcept lexx) {

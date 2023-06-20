@@ -39,8 +39,7 @@ static bool IsNameChar(char chr) {
   // I put '-' here so '-f' appears as a single token
   return isalnum(chr) || chr == '.' || chr == '?' || chr == '*' || chr == '-';
 }
-std::string LexItem(const std::string input, size_t &idx,
-                    bool is_arith) {
+std::string LexItem(const std::string input, size_t &idx, bool is_arith) {
   std::string token;
   std::ostringstream stm;
   CLexerExcept except;
@@ -363,5 +362,26 @@ finish:
   if (Commands::aliasMap.count(token))
     return Commands::aliasMap[token];
   return token;
+}
+
+std::vector<std::string> ExpandToken(const std::string &input) {
+  std::vector<std::string> ret;
+  std::string cur_nugget = "";
+  size_t i = 0;
+  while (i < input.size()) {
+    if (isblank(input[i])) {
+      while (i < input.size())
+        if (isblank(input[i]))
+          i++;
+        else
+          break;
+      ret.push_back(cur_nugget);
+      cur_nugget.clear();
+    } else
+      cur_nugget += input[i++];
+  }
+  if (cur_nugget.size())
+    ret.push_back(cur_nugget);
+  return ret;
 }
 } // namespace Lexer
