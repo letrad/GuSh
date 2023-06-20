@@ -16,8 +16,9 @@
 #include <pwd.h>
 #include <filesystem>
 #include <fstream>
+#include <signal.h>
 #include "Commands.h"
-
+#include "Lexer.h"
 const char* getHomeDirectory() {
     return getpwuid(getuid())->pw_dir;
 }
@@ -70,10 +71,9 @@ std::string executeCommandForSubstitution(const std::string& command) {
 
 std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
     std::vector<std::vector<std::string>> commands;
-    std::vector<std::string> tokens;
-    std::string token;
-    bool inSingleQuote = false;
-    bool inDoubleQuote = false;
+    std::vector<std::string> tokens,expanded;
+    std::string token; //See Lexer.cpp
+    size_t idx=0;
 
     std::string commandWithAliasesReplaced = command;
     for (const auto& alias : Commands::aliasMap) {
@@ -81,28 +81,27 @@ std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
         std::regex r(pattern);
         commandWithAliasesReplaced = std::regex_replace(commandWithAliasesReplaced, r, alias.second);
     }
-
-    for (char c : commandWithAliasesReplaced) {
-        if (c == ' ' && !inSingleQuote && !inDoubleQuote) {
-            handleToken(token, tokens);
-            token.clear();
-        } else if (c == '|' && !inSingleQuote && !inDoubleQuote) {
-            handleToken(token, tokens);
-            commands.push_back(tokens);
-            tokens.clear();
-            token.clear();
-        } else if (c == '\'' && !inDoubleQuote) {
-            inSingleQuote = !inSingleQuote;
-        } else if (c == '\"' && !inSingleQuote) {
-            inDoubleQuote = !inDoubleQuote;
-        } else {
-            token += c;
-        }
-    }
-
-    handleToken(token, tokens);
+    
+    try {
+		while(idx<command.size()) {
+			token=Lexer::LexItem(command,idx);
+			expanded=Lexer::ExpandToken(token);
+			for(auto token :expanded) {
+				if(token=="|") {
+					commands.push_back(tokens);
+					tokens.clear();
+				} else {
+					handleToken(token,tokens);
+				}
+			}
+		}
+	} catch(Lexer::CLexerExcept lexx) {
+	   std::cerr<<lexx.message<<std::endl;
+	   commands.clear();
+	   return commands;
+	}
+    
     commands.push_back(tokens);
-
     return commands;
 }
 
@@ -268,6 +267,21 @@ char** commandCompletion(const char* text, int start, int end) {
     return completionMatches;
 }
 
+static std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap;
+
+static bool executeBuiltin(std::vector<std::string> command) {
+	//Nroot here,i think you broke commandMap here,so as a tmp fix i will check the above commandMap for builtins
+	if(command.size()<1) return false;
+    if(commandMap.count(command[0])) {
+		auto cb=commandMap[command[0]];
+		std::vector<std::string> slice=command;
+		slice.erase(slice.begin()); //Remove command name
+		cb(slice);
+		return true;
+	}
+	return false;
+}
+
 std::string runCmd(const std::string& command) {
     std::string modifiedCommand = command;
 
@@ -285,10 +299,12 @@ std::string runCmd(const std::string& command) {
 
     std::vector<std::vector<std::string>> commands = splitCommand(modifiedCommand);
 
+
     if (commands.size() > 1) {
         executePipedCommands(commands);
-    } else if (!commands[0].empty()) {
-        executeExternalCommand(commands[0]);
+    } else if (!commands.empty()) {
+		if(!executeBuiltin(commands[0]))
+			executeExternalCommand(commands[0]);
     }
 
     return "";
@@ -316,7 +332,7 @@ int main() {
     try {
         rl_attempted_completion_function = reinterpret_cast<CompletionFunc>(commandCompletion);
 
-        std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap = {
+         std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> tmp = {
                 {"exit", [](const std::vector<std::string>&) {
                     exit(0);
                 }},
@@ -325,6 +341,7 @@ int main() {
                 {"export", Commands::cmdExport},
                 {"alias", Commands::cmdAlias}
         };
+        commandMap=tmp;
 
         const char* homedir = getHomeDirectory();
         std::string historyPath = std::string(homedir) + "/.gushHis";

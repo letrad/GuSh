@@ -16,45 +16,48 @@ namespace Commands {
     }
 
     void cmdCd(const std::vector<std::string>& commands) {
-        if (commands.size() < 2) {
+        if (commands.size() != 1) {
             return;
         }
 
-        const std::string& directory = commands[1];
+        const std::string& directory = commands[0];
         if (chdir(directory.c_str()) != 0) {
             std::cout << "cd: Failed to change directory to " << directory << std::endl;
         }
     }
 
     void cmdExport(const std::vector<std::string>& commands) {
-        if (commands.size() < 2) {
+		size_t merge;
+        if (commands.size() < 3) {
             std::cout << "export: Missing variable assignment" << std::endl;
             return;
         }
-
-        size_t pos = commands[1].find("=");
-        if (pos == std::string::npos) {
+        
+        if (commands[1] != "=") {
             std::cout << "export: Invalid variable assignment" << std::endl;
             return;
         }
 
-        std::string varName = commands[1].substr(0, pos);
-        std::string varValue = commands[1].substr(pos + 1);
+        std::string varName = commands[0];
+        std::string varValue = "";
+        for(merge=2;merge<commands.size();merge++) {
+			if(merge!=2) varValue += " ";
+			varValue += commands[merge];
+		}
         envVariables[varName] = varValue;
     }
 
     void cmdAlias(const std::vector<std::string>& commands) {
-        if (commands.size() < 2) {
+        if (commands.size() != 3) {
             std::cerr << "Usage: alias [alias_name]=[command]\n";
             return;
         }
-        size_t pos = commands[1].find("=");
-        if (pos == std::string::npos) {
+        if (commands[1]!="=") {
             std::cout << "Usage: alias [alias_name]=[command]" << std::endl;
             return;
         }
-        std::string varName = commands[1].substr(0, pos);
-        std::string varValue = commands[1].substr(pos + 1);
+        std::string varName = commands[0];
+        std::string varValue = commands[2];
 
         aliasMap[varName] = varValue;
     }
