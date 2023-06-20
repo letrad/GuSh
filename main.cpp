@@ -332,7 +332,7 @@ std::string exCmd(const std::string& command) {
         pos = command.find("$(", pos + 1);
     }
 
-    std::vector<std::vector<std::string>> commands = splitCommand(command);
+    std::vector<std::vector<std::string>> commands = splitCommand(modifiedCommand);
 
     if (commands.size() > 1) {
         exPipedCommands(commands);
