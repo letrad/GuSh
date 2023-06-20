@@ -270,7 +270,9 @@ std::vector<std::string> getDirMatches(const char *path) {
 
 typedef char** (*CompletionFunc)(const char*, int, int);
 
-char** commandCompletion(const char* text, int start, int end) {
+//Force a "C" ABI for libreadline api
+extern "C" {
+char** gushCompletion(const char* text, int start, int end) {
     if (start != 0&&!strlen(text)) {
         return nullptr;
     }
@@ -306,6 +308,7 @@ char** commandCompletion(const char* text, int start, int end) {
 
     return completionMatches;
 }
+};
 
 std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap = {
             {"exit", [](const std::vector<std::string>&) {
@@ -374,6 +377,8 @@ int main() {
     try {
         const char *homedir = getHomeDirectory();
         std::string historyPath = std::string(homedir) + "/.gushHis";
+
+        rl_attempted_completion_function = gushCompletion;
 
         if (read_history(historyPath.c_str()) != 0) {
             if (errno != ENOENT) {
