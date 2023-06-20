@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <glob.h>
 namespace Lexer {
 static bool IsOctDigit(char chr) {
   switch (chr) {
@@ -35,7 +36,8 @@ static bool IsDelimeter(char chr) {
   return false;
 }
 static  bool IsNameChar(char chr) {
-	return isalnum(chr)||chr=='.'||chr=='?'||chr=='*';
+	//I put '-' here so '-f' appears as a single token 
+	return isalnum(chr)||chr=='.'||chr=='?'||chr=='*'||chr=='-';
 } 
 std::string LexItem(const std::string input, size_t &idx) {
   std::string token;
@@ -275,11 +277,32 @@ enter:
     }
     goto enter;
   } else if (IsNameChar(input[idx])||input[idx]=='$') {
+	bool needs_glob=false; 
     while (idx < input.size()) {
       if (IsDelimeter(input[idx]) && !IsNameChar(input[idx]))
         break;
-      stm << input[idx++];
+      switch(input[idx]) {
+		  case '?':
+		  case '*':
+		  needs_glob=1;
+	  }
+      token += input[idx++];
     }
+    if(needs_glob) {
+		int i;
+		//man 3 glob 
+		glob_t matches;
+		matches.gl_offs=0;
+		glob(token.c_str(),GLOB_DOOFFS,NULL,&matches);
+		for(i=0;matches.gl_pathv[i];i++) {
+			if(i)
+				stm << " ";
+			stm << matches.gl_pathv[i]; 
+		}
+		globfree(&matches);
+	} else
+		stm << token;
+	token.clear();
     goto finish;
   } else if (input[idx] == '\'') {
     // In GuSh,I(nrootconauto) will make '' a RAW string untained by expanding
@@ -290,6 +313,24 @@ enter:
     // You can use "$var" in here
     idx++;
     stm << prs_string('"', true);
+  } else if(input[idx]=='|') {
+	  if(++idx<input.size())
+		if(input[idx]=='|') {
+			idx++;
+			stm<<"||";
+			goto finish;
+		}
+	stm<<"|";
+	goto finish;
+  } else if(input[idx]=='&') {
+	  if(++idx<input.size())
+		if(input[idx]=='&') {
+			idx++;
+			stm<<"&&";
+			goto finish;
+		}
+	stm<<"&";
+	goto finish;
   } else {
     stm << input[idx++];
     goto finish;
