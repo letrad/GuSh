@@ -3,7 +3,7 @@ project(GuSh)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(GuSh main.cpp Commands.h Commands.cpp)
+add_executable(GuSh main.cpp Commands.h Commands.cpp Lexer.cpp)
 
 # Try to find the readline library using CMake's FindReadline module
 find_package(Readline)
