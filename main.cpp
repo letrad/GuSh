@@ -19,6 +19,11 @@
 #include <signal.h>
 #include "Commands.h"
 #include "Lexer.h"
+#include <glob.h>
+#include <algorithm>
+#include <memory>
+#include <utility>
+#include <mutex>
 const char* getHomeDirectory() {
     return getpwuid(getuid())->pw_dir;
 }
@@ -217,17 +222,20 @@ void executePipedCommands(std::vector<std::vector<std::string>>& commands) {
 
 std::vector<std::string> getCommandMatches(const char* text) {
     std::vector<std::string> matches;
+    if(!strlen(text)) return matches;
     std::string pathEnv = std::getenv("PATH");
     std::istringstream pathStream(pathEnv);
     std::string path;
     while (getline(pathStream, path, ':')) {
         try {
-            for (const auto& entry : std::filesystem::directory_iterator(path)) {
-                const std::string& filename = entry.path().filename().string();
-                if (filename.find(text) == 0) {
-                    matches.push_back(filename);
-                }
-            }
+			if(std::filesystem::exists(path))
+				for (const auto& entry : std::filesystem::directory_iterator(path)) {
+					//Here's the deal,a user may have a invalid path in their directory,do ignore it 
+					const std::string& filename = entry.path().filename().string();
+					if (filename.find(text) == 0) {
+						matches.push_back(filename);
+					}
+				}
         } catch (const std::filesystem::filesystem_error& e) {
             std::cerr << "GuSH: Filesystem error: " << e.what() << std::endl;
         }
@@ -235,34 +243,61 @@ std::vector<std::string> getCommandMatches(const char* text) {
     return matches;
 }
 
+std::vector<std::string> getDirMatches(const char *path) {
+	size_t cnt;
+	std::vector<std::string> matches;
+	std::string pat=path;
+	if(!pat.size()) return matches;
+	if(std::filesystem::is_directory(pat)) {
+		if(pat.back()=='/')
+			pat += "*";
+	} else if(pat.back()!='*')
+		pat += "*";
+	glob_t gl;
+    gl.gl_offs = 0;
+    glob(pat.c_str(), GLOB_DOOFFS, NULL, &gl);
+    if(gl.gl_pathv)
+		for(cnt=0;gl.gl_pathv[cnt];cnt++)
+			matches.push_back(gl.gl_pathv[cnt]);
+    globfree(&gl);  
+    return matches;
+}
+
 typedef char** (*CompletionFunc)(const char*, int, int);
 
 char** commandCompletion(const char* text, int start, int end) {
-    if (start != 0) {
+    if (start != 0&&!strlen(text)) {
         return nullptr;
     }
 
     rl_attempted_completion_over = 1;
-    std::vector<std::string> matches = getCommandMatches(text);
+    std::vector<std::string> pmatches = getCommandMatches(text);
+    std::vector<std::string> dmatches = getDirMatches(text);
+    pmatches.insert(pmatches.end(),dmatches.begin(),dmatches.end());
 
-    if (matches.empty()) {
+    std::sort(pmatches.begin(),pmatches.end());
+    
+    if (pmatches.empty()) {
         return nullptr;
     }
+
+	static std::shared_ptr<std::vector<std::string>> precomputed=nullptr;
+	precomputed=std::make_shared<std::vector<std::string>>(pmatches);
 
     char** completionMatches = rl_completion_matches(text, [](const char* text, int state) -> char* {
         static size_t index = 0;
         if (state == 0) {
             index = 0;
         }
-
-        std::vector<std::string> matches = getCommandMatches(text);
-
-        if (index < matches.size()) {
-            return strdup(matches[index++].c_str());
+        
+        if (index < precomputed->size()) {
+            return strdup(precomputed->at(index++).c_str());
         }
 
         return nullptr;
     });
+
+	precomputed.reset();
 
     return completionMatches;
 }

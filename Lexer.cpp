@@ -296,10 +296,12 @@ enter:
       glob_t matches;
       matches.gl_offs = 0;
       glob(token.c_str(), GLOB_DOOFFS, NULL, &matches);
-      for (i = 0; matches.gl_pathv[i]; i++) {
-        if (i)
-          stm << " ";
-        stm << matches.gl_pathv[i];
+      if (matches.gl_pathv) {
+        for (i = 0; matches.gl_pathv[i]; i++) {
+          if (i)
+            stm << " ";
+          stm << matches.gl_pathv[i];
+        }
       }
       globfree(&matches);
     } else
