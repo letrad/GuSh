@@ -27,7 +27,8 @@ namespace Commands {
     }
 
     void cmdExport(const std::vector<std::string>& commands) {
-        if (commands.size() != 3) {
+		size_t merge;
+        if (commands.size() < 3) {
             std::cout << "export: Missing variable assignment" << std::endl;
             return;
         }
@@ -38,7 +39,11 @@ namespace Commands {
         }
 
         std::string varName = commands[0];
-        std::string varValue = commands[2];
+        std::string varValue = "";
+        for(merge=2;merge<commands.size();merge++) {
+			if(merge!=2) varValue += " ";
+			varValue += commands[merge];
+		}
         envVariables[varName] = varValue;
     }
 

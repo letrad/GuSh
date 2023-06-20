@@ -1,11 +1,11 @@
 #include "Lexer.h"
 #include "Commands.h"
 #include <ctype.h>
+#include <glob.h>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <glob.h>
 namespace Lexer {
 static bool IsOctDigit(char chr) {
   switch (chr) {
@@ -35,11 +35,12 @@ static bool IsDelimeter(char chr) {
   }
   return false;
 }
-static  bool IsNameChar(char chr) {
-	//I put '-' here so '-f' appears as a single token 
-	return isalnum(chr)||chr=='.'||chr=='?'||chr=='*'||chr=='-';
-} 
-std::string LexItem(const std::string input, size_t &idx) {
+static bool IsNameChar(char chr) {
+  // I put '-' here so '-f' appears as a single token
+  return isalnum(chr) || chr == '.' || chr == '?' || chr == '*' || chr == '-';
+}
+std::string LexItem(const std::string input, size_t &idx,
+                    bool is_arith) {
   std::string token;
   std::ostringstream stm;
   CLexerExcept except;
@@ -76,7 +77,7 @@ std::string LexItem(const std::string input, size_t &idx) {
               throw(except);
             }
           } else
-			break;
+            break;
           substr_len++;
           idx++;
         } while (true);
@@ -120,45 +121,45 @@ std::string LexItem(const std::string input, size_t &idx) {
           }
           return result;
         };
-          switch (input[idx]) {
-          case 'e':
-            stm << '\e';
-            idx++;
-            break;
-          case 'b': // Ding ding
-            stm << '\b';
-            idx++;
-            break;
-          case 'n':
-            stm << '\n';
-            idx++;
-            break;
-          case 'r':
-            stm << '\r';
-            idx++;
-            break;
-          case 't':
-            stm << '\t';
-            idx++;
-            break;
-          case '\\':
-            stm << '\\';
-            idx++;
-            break;
-          case 'x':
-          case 'X':
-            stm << char(esc_num(16));
-            break;
-          default:
-            if (IsOctDigit(input[idx])) {
-              stm << char(esc_num(8));
-            } else {
-              except.message = "Invalid escape sequence '\\";
-              except.message += input[idx];
-              except.message += "\'.";
-              except.at = idx;
-              throw(except);
-            }
+        switch (input[idx]) {
+        case 'e':
+          stm << '\e';
+          idx++;
+          break;
+        case 'b': // Ding ding
+          stm << '\b';
+          idx++;
+          break;
+        case 'n':
+          stm << '\n';
+          idx++;
+          break;
+        case 'r':
+          stm << '\r';
+          idx++;
+          break;
+        case 't':
+          stm << '\t';
+          idx++;
+          break;
+        case '\\':
+          stm << '\\';
+          idx++;
+          break;
+        case 'x':
+        case 'X':
+          stm << char(esc_num(16));
+          break;
+        default:
+          if (IsOctDigit(input[idx])) {
+            stm << char(esc_num(8));
+          } else {
+            except.message = "Invalid escape sequence '\\";
+            except.message += input[idx];
+            except.message += "\'.";
+            except.at = idx;
+            throw(except);
+          }
         }
         continue;
       } else
@@ -276,33 +277,44 @@ enter:
       goto finish;
     }
     goto enter;
-  } else if (IsNameChar(input[idx])||input[idx]=='$') {
-	bool needs_glob=false; 
+  } else if (!is_arith && IsNameChar(input[idx]) || input[idx] == '$') {
+    // is_arith will want "-"(a name charactor) to be used for arithmetic,DONT
+    // USE IT AS A NAME
+    bool needs_glob = false;
     while (idx < input.size()) {
       if (IsDelimeter(input[idx]) && !IsNameChar(input[idx]))
         break;
-      switch(input[idx]) {
-		  case '?':
-		  case '*':
-		  needs_glob=1;
-	  }
+      switch (input[idx]) {
+      case '?':
+      case '*':
+        needs_glob = 1;
+      }
       token += input[idx++];
     }
-    if(needs_glob) {
-		int i;
-		//man 3 glob 
-		glob_t matches;
-		matches.gl_offs=0;
-		glob(token.c_str(),GLOB_DOOFFS,NULL,&matches);
-		for(i=0;matches.gl_pathv[i];i++) {
-			if(i)
-				stm << " ";
-			stm << matches.gl_pathv[i]; 
-		}
-		globfree(&matches);
-	} else
-		stm << token;
-	token.clear();
+    if (needs_glob) {
+      int i;
+      // man 3 glob
+      glob_t matches;
+      matches.gl_offs = 0;
+      glob(token.c_str(), GLOB_DOOFFS, NULL, &matches);
+      for (i = 0; matches.gl_pathv[i]; i++) {
+        if (i)
+          stm << " ";
+        stm << matches.gl_pathv[i];
+      }
+      globfree(&matches);
+    } else
+      stm << token;
+    token.clear();
+    goto finish;
+  } else if (is_arith && input[idx] == '-') {
+    if (++idx < input.size())
+      if (input[idx] == '-') {
+        idx++;
+        stm << "--";
+        goto finish;
+      }
+    stm << "-";
     goto finish;
   } else if (input[idx] == '\'') {
     // In GuSh,I(nrootconauto) will make '' a RAW string untained by expanding
@@ -313,42 +325,43 @@ enter:
     // You can use "$var" in here
     idx++;
     stm << prs_string('"', true);
-  } else if(input[idx]=='|') {
-	  if(++idx<input.size())
-		if(input[idx]=='|') {
-			idx++;
-			stm<<"||";
-			goto finish;
-		}
-	stm<<"|";
-	goto finish;
-  } else if(input[idx]=='&') {
-	  if(++idx<input.size())
-		if(input[idx]=='&') {
-			idx++;
-			stm<<"&&";
-			goto finish;
-		}
-	stm<<"&";
-	goto finish;
+  } else if (input[idx] == '|') {
+    if (++idx < input.size())
+      if (input[idx] == '|') {
+        idx++;
+        stm << "||";
+        goto finish;
+      }
+    stm << "|";
+    goto finish;
+  } else if (input[idx] == '&') {
+    if (++idx < input.size())
+      if (input[idx] == '&') {
+        idx++;
+        stm << "&&";
+        goto finish;
+      }
+    stm << "&";
+    goto finish;
   } else {
     stm << input[idx++];
     goto finish;
   }
 finish:
   token = stm.str();
-  if(!token.size()) return token;
-  if(token[0]=='$') {
-	std::string variable = token.substr(1);
-	if (!Commands::envVariables.count(variable)) {
-	  except.message = "Unknown variable \"" + variable + "\".";
-	  except.at = idx;
-	  throw(except);
-	}
-	return Commands::envVariables[variable];
+  if (!token.size())
+    return token;
+  if (token[0] == '$') {
+    std::string variable = token.substr(1);
+    if (!Commands::envVariables.count(variable)) {
+      except.message = "Unknown variable \"" + variable + "\".";
+      except.at = idx;
+      throw(except);
+    }
+    return Commands::envVariables[variable];
   }
-  if(Commands::aliasMap.count(token))
-	  return Commands::aliasMap[token];
+  if (Commands::aliasMap.count(token))
+    return Commands::aliasMap[token];
   return token;
 }
 } // namespace Lexer

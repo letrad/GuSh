@@ -266,7 +266,6 @@ char** commandCompletion(const char* text, int start, int end) {
 
 static std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commandMap;
 
-
 static bool executeBuiltin(std::vector<std::string> command) {
 	//Nroot here,i think you broke commandMap here,so as a tmp fix i will check the above commandMap for builtins
 	if(command.size()<1) return false;

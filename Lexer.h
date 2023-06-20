@@ -7,5 +7,5 @@ namespace Lexer {
 	  std::string message;
 	  int at;
 	};
-	std::string LexItem(const std::string input, size_t &idx);
+	std::string LexItem(const std::string input, size_t &idx,bool is_arith=false);
 };
