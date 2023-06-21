@@ -111,7 +111,33 @@ std::vector<std::vector<std::string>> splitCommand(const std::string& command) {
     return commands;
 }
 
+static int exWithEnv(const char *command,const std::vector<std::string>& cmds) {	
+	std::vector<char*> cstyle_commands;
+	for (const auto& cmd : cmds) {
+		cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
+	}
+	cstyle_commands.push_back(nullptr);
+	
+	//Make enviroment array
+	std::vector<char *> cstyle_env;
+	//We will need to allocate the tuples in the format "VAR=value"
+	std::vector<std::string> alloced_var_tuples;
+	//Here's the deal const char **environ; contains "var=val" stuff,I will make a "clone"
+	//of existing ones,then I will add our stuff from Commands::envVariables
+	//man 7 environ
+	for(size_t i=0;environ[i];i++)
+		cstyle_env.push_back(environ[i]);
+	for(const auto& it: Commands::envVariables) {
+		std::string dummy=it.first;
+		dummy+="=";
+		dummy+=it.second;
+		alloced_var_tuples.push_back(dummy);
+		cstyle_env.push_back(const_cast<char*>(dummy.c_str()));
+	}
+	cstyle_env.push_back(nullptr);
 
+	return execvpe(command, cstyle_commands.data(),cstyle_env.data());
+}  
 
 void exExternal(const std::vector<std::string>& commands) {
     if (commands.empty()) {
@@ -146,14 +172,8 @@ void exExternal(const std::vector<std::string>& commands) {
     } else if (pid == 0) {  // Child process
         signal(SIGINT, SIG_DFL);  // Reset SIGINT handler
 
-        std::vector<char*> cstyle_commands;
-        for (const auto& cmd : finalCommands) {
-            cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
-        }
-        cstyle_commands.push_back(nullptr);
-
-        execvp(cstyle_commands[0], cstyle_commands.data());
-
+		exWithEnv(const_cast<const char*>(commands[0].c_str()),finalCommands);
+        
         // If execvp returns, an error occurred.
         std::cerr << "GuSH: The specified command could not be found: " << finalCommands[0] << "\n";
         exit(EXIT_FAILURE);  // End the child process.
@@ -204,14 +224,8 @@ void exPipedCommands(std::vector<std::vector<std::string>>& commands) {
             for (int j = 0; j < 2 * commands.size() - 2; ++j)
                 close(pipefds[j]);
 
-            std::vector<char*> cstyle_commands;
-            for (const auto& cmd : commands[i]) {
-                cstyle_commands.push_back(const_cast<char*>(cmd.c_str()));
-            }
-            cstyle_commands.push_back(nullptr);
-
-            if (execvp(cstyle_commands[0], cstyle_commands.data()) < 0) {
-                perror(*cstyle_commands.begin());
+            if (exWithEnv(const_cast<const char*>(commands[i][0].c_str()),commands[i]) < 0) {
+                perror(commands[i][0].c_str());
                 exit(EXIT_FAILURE);
             }
         }
