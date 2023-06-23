@@ -24,6 +24,7 @@
 #include <memory>
 #include <utility>
 #include <mutex>
+#include <unistd.h>
 const char* getHomeDirectory() {
     return getpwuid(getuid())->pw_dir;
 }
@@ -122,9 +123,11 @@ static int exWithEnv(const char *command,const std::vector<std::string>& cmds) {
 	std::vector<char *> cstyle_env;
 	//We will need to allocate the tuples in the format "VAR=value"
 	std::vector<std::string> alloced_var_tuples;
+	#if defined (__linux__)
 	//Here's the deal const char **environ; contains "var=val" stuff,I will make a "clone"
 	//of existing ones,then I will add our stuff from Commands::envVariables
 	//man 7 environ
+	extern char **environ;
 	for(size_t i=0;environ[i];i++)
 		cstyle_env.push_back(environ[i]);
 	for(const auto& it: Commands::envVariables) {
@@ -137,6 +140,21 @@ static int exWithEnv(const char *command,const std::vector<std::string>& cmds) {
 	cstyle_env.push_back(nullptr);
 
 	return execvpe(command, cstyle_commands.data(),cstyle_env.data());
+	#elif defined (__FreeBSD__)
+	for(const auto& it: Commands::envVariables) {
+		const char *exist;
+		if((exist=getenv(it.first.c_str()))) {
+			if(strcmp(exist,it.second.c_str()))
+				goto set;
+		} else {
+set:
+			setenv(it.first.c_str(),it.second.c_str(),1);
+		}
+	}
+	return execvp(command, cstyle_commands.data());
+	#else
+	#error "Platform not supported"
+	#endif
 }  
 
 void exExternal(const std::vector<std::string>& commands) {
@@ -263,10 +281,16 @@ std::vector<std::string> getCommandMatches(const char* text) {
 }
 
 std::vector<std::string> getDirMatches(const char *path) {
-	size_t cnt;
+	size_t cnt,dir_sz;
+	bool expanded_home_dir = false;
 	std::vector<std::string> matches;
 	std::string pat=path;
 	if(!pat.size()) return matches;
+	if(0==pat.find("~/")) {
+		expanded_home_dir = true;
+		dir_sz = std::string(getHomeDirectory()).size();
+		pat.replace(0,1,getHomeDirectory());
+	}
 	if(std::filesystem::is_directory(pat)) {
 		if(pat.back()=='/')
 			pat += "*";
@@ -276,8 +300,11 @@ std::vector<std::string> getDirMatches(const char *path) {
     gl.gl_offs = 0;
     glob(pat.c_str(), GLOB_DOOFFS, NULL, &gl);
     if(gl.gl_pathv)
-		for(cnt=0;gl.gl_pathv[cnt];cnt++)
+		for(cnt=0;gl.gl_pathv[cnt];cnt++) {
 			matches.push_back(gl.gl_pathv[cnt]);
+			if(expanded_home_dir)
+				matches.back().replace(0,dir_sz,"~");
+		}
     globfree(&gl);  
     return matches;
 }
