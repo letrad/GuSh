@@ -6,6 +6,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unistd.h>
+#include <pwd.h>
 namespace Lexer {
 static bool IsOctDigit(char chr) {
   switch (chr) {
@@ -277,7 +279,13 @@ enter:
       goto finish;
     }
     goto enter;
-  } else if (!is_arith && IsNameChar(input[idx]) || input[idx] == '$') {
+  } else if ((!is_arith && input[idx] == '~') || (!is_arith && IsNameChar(input[idx])) || input[idx] == '$') {
+	// Home directory
+	if(!is_arith && input[idx] == '~') {
+	  stm << getpwuid(getuid())->pw_dir;
+	  if(++idx >= input.size())
+		goto finish;
+	}
     // is_arith will want "-"(a name charactor) to be used for arithmetic,DONT
     // USE IT AS A NAME
     bool needs_glob = false;
